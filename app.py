@@ -42,7 +42,7 @@ if st.button("🚀 一键生成全英文专业报价单", use_container_width=Tr
             try:
                 # 1. 初始化模型 (使用速度极快、支持多模态的 Flash 模型)
                 genai.configure(api_key=api_key)
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('gemini-2.5-flash')
 
                 # 2. 设定极度专业的系统提示词 (Prompt)
                 prompt = f"""
