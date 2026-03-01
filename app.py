@@ -11,10 +11,12 @@ st.set_page_config(page_title="AI Quote Generator Pro", page_icon="🔧", layout
 st.title("🔧 AI Auto-Quote for Contractors")
 st.markdown("上传现场照片并输入您的语音描述，AI 将为您生成专业的英文报价单。")
 
-# ================= 侧边栏：配置 API Key =================
+# ================= 侧边栏：配置 API Key 和 公司信息 =================
 with st.sidebar:
     st.header("⚙️ Settings")
     api_key = st.text_input("输入你的 Gemini API Key:", type="password")
+    # 修复 1：增加公司名称自定义输入框，彻底消灭幽灵公司名
+    company_name = st.text_input("输入您的公司名称 (将显示在报价单顶部):", value="My Contractor Company")
     st.markdown("---")
     st.markdown("💡 **Tip**: 测试通过后，可以推送到你的 wux401425-create GitHub 仓库进行版本管理，但记得在代码外层配置环境变量，不要把 Key 硬编码提交。")
 
@@ -35,16 +37,18 @@ with col2:
 if st.button("🚀 一键生成全英文专业报价单", use_container_width=True):
     if not api_key:
         st.error("请先在左侧边栏输入您的 API Key！")
+    elif not company_name:
+        st.error("请先在左侧边栏配置您的公司名称！")
     elif uploaded_file is None or not voice_notes:
         st.error("请同时提供现场照片和语音描述！")
     else:
         with st.spinner("AI 正在深度分析照片并生成专业报价..."):
             try:
-                # 1. 初始化模型 (使用速度极快、支持多模态的 Flash 模型)
+                # 1. 初始化模型
                 genai.configure(api_key=api_key)
                 model = genai.GenerativeModel('gemini-2.5-flash')
 
-                # 2. 设定极度专业的系统提示词 (Prompt)
+                # 2. 设定极度专业的系统提示词 (注入真实的 Company Name)
                 prompt = f"""
                 You are a highly professional contractor estimator in the United States. 
                 Based on the provided image of the worksite and the following raw notes from the contractor: "{voice_notes}", 
@@ -52,7 +56,7 @@ if st.button("🚀 一键生成全英文专业报价单", use_container_width=Tr
                 
                 Format the output strictly as plain text (no markdown formatting, no emojis, standard ASCII characters only) in the following structure:
                 
-                COMPANY: TopTier Services
+                COMPANY: {company_name}
                 DOCUMENT: Official Quote
                 --------------------------------------------------
                 CUSTOMER ISSUE SUMMARY:
@@ -83,11 +87,22 @@ if st.button("🚀 一键生成全英文专业报价单", use_container_width=Tr
                 pdf.add_page()
                 pdf.set_font("Arial", size=12)
                 
-                # FPDF 处理多行文本
+                # 修复 2：将现场图片转换并嵌入到 PDF 顶部
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_img:
+                    # 将图片转为 RGB 模式（防止 RGBA 报错）并保存为临时文件供 FPDF 读取
+                    img_to_save = image.convert('RGB')
+                    img_to_save.save(tmp_img.name)
+                    
+                    # 插入图片（设置宽度为 100，居中展示的粗略坐标）
+                    pdf.image(tmp_img.name, x=55, w=100) 
+                    pdf.ln(10) # 图片下方留白
+                    tmp_img_path = tmp_img.name
+                
+                # 修复 3：使用 multi_cell 处理自动换行，彻底告别文字截断
                 for line in quote_text.split('\n'):
-                    # 将 utf-8 转换为 latin-1 以适配 FPDF 的默认编码
                     clean_line = line.encode('latin-1', 'replace').decode('latin-1')
-                    pdf.cell(200, 10, txt=clean_line, ln=True, align='L')
+                    # 宽度设为 0 表示一直延伸到右侧页边距，高度为 8
+                    pdf.multi_cell(0, 8, txt=clean_line)
                 
                 # 保存为临时文件并提供下载
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
@@ -96,15 +111,16 @@ if st.button("🚀 一键生成全英文专业报价单", use_container_width=Tr
                         pdf_bytes = f.read()
                 
                 st.download_button(
-                    label="📥 下载 PDF 报价单发送给客户",
+                    label="📥 下载专业级 PDF 报价单",
                     data=pdf_bytes,
                     file_name="Official_Quote.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )
                 
-                # 清理临时文件
+                # 清理产生的两个临时文件，防止内存泄漏
+                os.unlink(tmp_img_path)
                 os.unlink(tmp_file.name)
 
             except Exception as e:
-                st.error(f"生成失败，请检查网络或 API Key: {e}")
+                st.error(f"生成失败，请检查网络或配置: {e}")
