@@ -20,29 +20,27 @@ if not st.session_state.logged_in:
     
     with st.container(border=True):
         st.subheader("Login to your account")
-        # 演示用的简单登录，你可以随时改成连接数据库
         username = st.text_input("Username or Email")
         password = st.text_input("Password", type="password")
         
         if st.button("Log In", type="primary", use_container_width=True):
             if username and password:
-                # 暂时允许任何输入登录，方便你发给别人试用
                 st.session_state.logged_in = True
                 st.rerun()
             else:
                 st.error("Please enter both username and password.")
                 
-    st.markdown("<p style='text-align: center; color: gray; font-size: 14px;'>Don't have an account? <a href='#'>Start your 7-day free trial</a> (Coming soon)</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: gray; font-size: 14px;'>Don't have an account? <a href='#'>Start your 7-day free trial</a></p>", unsafe_allow_html=True)
 
 # ================= Main Application (After Login) =================
 else:
     st.title("💼 AI Auto-Quote Pro")
     st.markdown("Upload a worksite photo and provide a brief description. The AI will generate a professional, calculated PDF quote.")
 
-    # --- Sidebar Settings ---
+    # --- Sidebar Settings (Cleaned for End User) ---
     with st.sidebar:
         st.header("⚙️ Account Settings")
-        api_key = st.text_input("Gemini API Key:", type="password", help="Enter your Google Gemini API Key")
+        # 移除了 API Key 输入框，只保留用户需要关心的业务配置
         company_name = st.text_input("Company Name (Header):", value="TopTier Plumbing & Repair")
         
         st.divider()
@@ -70,13 +68,21 @@ else:
     # --- Core Logic ---
     st.divider()
     if st.button("🚀 Generate Professional Quote (PDF)", type="primary", use_container_width=True):
-        if not api_key or not company_name:
-            st.error("⚠️ Please fill in your API Key and Company Name in the sidebar settings.")
+        if not company_name:
+            st.error("⚠️ Please fill in your Company Name in the sidebar settings.")
         elif uploaded_file is None or not voice_notes:
             st.error("⚠️ Please provide both a worksite photo and a job description.")
         else:
             with st.spinner("AI is analyzing the site and calculating costs..."):
                 try:
+                    # 商业级密钥管理：从系统的环境变量/Secrets中静默读取 API Key
+                    # 用户永远不会看到这一步
+                    if "GEMINI_API_KEY" in st.secrets:
+                        api_key = st.secrets["GEMINI_API_KEY"]
+                    else:
+                        st.error("⚠️ System Configuration Error: API key is missing on the server. Please contact admin.")
+                        st.stop()
+
                     genai.configure(api_key=api_key)
                     model = genai.GenerativeModel('gemini-2.5-flash')
 
