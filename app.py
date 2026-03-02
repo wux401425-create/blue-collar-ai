@@ -5,13 +5,17 @@ from PIL import Image
 from fpdf import FPDF
 import tempfile
 import os
+import time # 新增：用于时间计算的库
 
 # ================= Page Configuration =================
 st.set_page_config(page_title="AI Quote Pro | Contractor Tools", page_icon="💼", layout="centered")
 
-# ================= Session State for Login =================
+# ================= Session State 初始化 =================
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
+# 新增：记录上一次点击生成按钮的时间
+if 'last_clicked' not in st.session_state:
+    st.session_state.last_clicked = 0
 
 # ================= Login Gateway =================
 if not st.session_state.logged_in:
@@ -32,27 +36,20 @@ if not st.session_state.logged_in:
                 
     st.markdown("<p style='text-align: center; color: gray; font-size: 14px;'>Don't have an account? <a href='#'>Start your 7-day free trial</a></p>", unsafe_allow_html=True)
 
-# ================= Main Application (After Login) =================
+# ================= Main Application =================
 else:
     st.title("💼 AI Auto-Quote Pro")
-    st.markdown("Upload a worksite photo and provide a brief description. The AI will generate a professional, calculated PDF quote.")
+    st.markdown("Upload a worksite photo and provide a brief description.")
 
-    # --- Sidebar Settings (Cleaned for End User) ---
     with st.sidebar:
         st.header("⚙️ Account Settings")
-        # 移除了 API Key 输入框，只保留用户需要关心的业务配置
         company_name = st.text_input("Company Name (Header):", value="TopTier Plumbing & Repair")
-        
         st.divider()
-        st.markdown("💡 **Pro Tip**: This system uses strict JSON structuring to ensure zero calculation errors between materials and labor.")
-        
         if st.button("Log Out"):
             st.session_state.logged_in = False
             st.rerun()
 
-    # --- Main Inputs ---
     col1, col2 = st.columns(2)
-
     with col1:
         st.subheader("1. Worksite Photo")
         uploaded_file = st.file_uploader("Upload image (JPG/PNG)", type=["jpg", "jpeg", "png"])
@@ -63,24 +60,34 @@ else:
     with col2:
         st.subheader("2. Job Description")
         voice_notes = st.text_area("Voice Notes / Text Input", height=150, 
-                                   placeholder="Example: The main water pipe is completely busted. Need to replace a section of PVC and fittings. Materials are about $50, and I'll charge $150 for labor. Can be done tomorrow morning.")
+                                   placeholder="Example: The main water pipe is completely busted...")
 
-    # --- Core Logic ---
     st.divider()
-    if st.button("🚀 Generate Professional Quote (PDF)", type="primary", use_container_width=True):
+    
+    # 新增：冷却时间计算逻辑（10秒内禁止连续点击）
+    current_time = time.time()
+    time_passed = current_time - st.session_state.last_clicked
+    can_click = time_passed > 10 
+    
+    # 如果还在冷却中，按钮上会显示提示
+    button_label = "🚀 Generate Professional Quote (PDF)" if can_click else f"⏳ Please wait {int(10 - time_passed)} seconds..."
+
+    if st.button(button_label, type="primary", use_container_width=True, disabled=not can_click):
+        # 记录这次点击的时间
+        st.session_state.last_clicked = current_time
+        
         if not company_name:
-            st.error("⚠️ Please fill in your Company Name in the sidebar settings.")
+            st.error("⚠️ Please fill in your Company Name in the sidebar.")
         elif uploaded_file is None or not voice_notes:
             st.error("⚠️ Please provide both a worksite photo and a job description.")
         else:
             with st.spinner("AI is analyzing the site and calculating costs..."):
                 try:
-                    # 商业级密钥管理：从系统的环境变量/Secrets中静默读取 API Key
-                    # 用户永远不会看到这一步
+                    # 读取隐藏在后端的 API Key
                     if "GEMINI_API_KEY" in st.secrets:
                         api_key = st.secrets["GEMINI_API_KEY"]
                     else:
-                        st.error("⚠️ System Configuration Error: API key is missing on the server. Please contact admin.")
+                        st.error("⚠️ System Configuration Error: API key is missing.")
                         st.stop()
 
                     genai.configure(api_key=api_key)
@@ -89,13 +96,12 @@ else:
                     prompt = f"""
                     You are a highly professional contractor estimator in the United States. 
                     Analyze the provided image and the contractor's raw notes: "{voice_notes}".
-                    
-                    You MUST extract the information and return it STRICTLY as a JSON object with the following exact keys. Do not include any markdown formatting like ```json in your response, just the raw JSON:
+                    You MUST extract the information and return it STRICTLY as a JSON object...
                     {{
-                        "issue_summary": "A formal, professional summary of the problem in English (1-2 sentences).",
-                        "proposed_solution": "A professional explanation of the repair work to be done in English.",
-                        "materials_cost": <extract the estimated materials cost as a raw number, e.g., 50>,
-                        "labor_cost": <extract the estimated labor cost as a raw number, e.g., 150>
+                        "issue_summary": "A formal summary...",
+                        "proposed_solution": "A professional explanation...",
+                        "materials_cost": <raw number>,
+                        "labor_cost": <raw number>
                     }}
                     """
 
@@ -112,11 +118,8 @@ else:
                     lab_cost = float(quote_data.get("labor_cost", 0))
                     total_cost = mat_cost + lab_cost 
 
-                    # Generate PDF
                     pdf = FPDF()
                     pdf.add_page()
-                    
-                    # Header
                     pdf.set_font("Arial", 'B', 16)
                     pdf.cell(0, 10, txt=f"COMPANY: {company_name}", ln=True, align='C')
                     pdf.set_font("Arial", 'B', 12)
@@ -124,7 +127,6 @@ else:
                     pdf.line(10, 30, 200, 30) 
                     pdf.ln(10)
                     
-                    # Image
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_img:
                         img_to_save = image.convert('RGB')
                         img_to_save.save(tmp_img.name)
@@ -132,7 +134,6 @@ else:
                         pdf.ln(5)
                         tmp_img_path = tmp_img.name
 
-                    # Content
                     def write_section(title, content):
                         pdf.set_font("Arial", 'B', 11)
                         pdf.cell(0, 8, txt=title, ln=True)
@@ -144,11 +145,9 @@ else:
                     write_section("CUSTOMER ISSUE SUMMARY:", quote_data["issue_summary"])
                     write_section("PROPOSED SOLUTION:", quote_data["proposed_solution"])
 
-                    # Smart Page Break
                     if pdf.get_y() > 240: 
                         pdf.add_page()
 
-                    # Breakdown
                     pdf.set_font("Arial", 'B', 12)
                     pdf.cell(0, 8, txt="ESTIMATED BREAKDOWN:", ln=True)
                     pdf.set_font("Arial", '', 11)
@@ -158,13 +157,11 @@ else:
                     pdf.ln(2)
                     pdf.set_font("Arial", 'B', 12)
                     pdf.cell(0, 8, txt=f"TOTAL ESTIMATED COST: ${total_cost:.2f}", ln=True)
-                    
                     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
                     pdf.ln(5)
                     pdf.set_font("Arial", 'I', 10)
-                    pdf.cell(0, 6, txt="Terms: Valid for 30 days. Work will be completed as described. Final cost may vary if hidden damages are found.", ln=True)
+                    pdf.cell(0, 6, txt="Terms: Valid for 30 days. Final cost may vary if hidden damages are found.", ln=True)
 
-                    # Output
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                         pdf.output(tmp_file.name)
                         with open(tmp_file.name, "rb") as f:
@@ -182,7 +179,5 @@ else:
                     os.unlink(tmp_img_path)
                     os.unlink(tmp_file.name)
 
-                except json.JSONDecodeError:
-                    st.error("❌ Failed to parse structured data. Please try again.")
                 except Exception as e:
-                    st.error(f"❌ An error occurred during generation: {e}")
+                    st.error(f"❌ An error occurred: {e}")
